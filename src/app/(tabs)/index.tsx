@@ -8,8 +8,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { HasilGeocoding } from "../../../types/geocoding";
-import { DataCuacaLengkap, DataKualitasUdara } from "../../../types/weather";
+import { HasilGeocoding } from "../../types/geocoding";
+import { DataCuacaLengkap, DataKualitasUdara } from "../../types/weather";
 import AtribusiCuaca from "../../components/AtribusiCuaca";
 import SearchBox from "../../components/SearchBox";
 import WeatherCard from "../../components/WeatherCard";
@@ -79,17 +79,38 @@ export default function HalamanUtama() {
         </View>
       )}
       {cuaca && kualitasUdara && kotaTerpilih && !sedangMemuat && (
-        <WeatherCard
-          kota={kotaTerpilih.name}
-          suhu={cuaca.saatIni.suhu}
-          tingkatAQI={konversiTingkatAQI(kualitasUdara.indeksAQI)}
-          indeksAQI={kualitasUdara.indeksAQI}
-        />
+        <>
+          <WeatherCard
+            kota={kotaTerpilih.name}
+            suhu={cuaca.saatIni.suhu}
+            tingkatAQI={konversiTingkatAQI(kualitasUdara.indeksAQI)}
+            indeksAQI={kualitasUdara.indeksAQI}
+          />
+          <View
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              paddingHorizontal: 4,
+            }}
+          >
+            <Text style={{ fontSize: 13, color: "#555" }}>
+              Suhu Maks: {cuaca.harian.suhuMaksimal[0]}°C
+            </Text>
+            <Text style={{ fontSize: 13, color: "#555" }}>
+              Suhu Min: {cuaca.harian.suhuMinimal[0]}°C
+            </Text>
+          </View>
+        </>
       )}
       {cuaca && (
         <Text style={{ fontSize: 12, color: "#888" }}>
-          Kondisi: {labelKodeCuaca(cuaca.saatIni.kodeCuaca)} • Angin
+          Kondisi: {labelKodeCuaca(cuaca.saatIni.kodeCuaca)} • Angin{" "}
           {cuaca.saatIni.kecepatanAngin} km/j
+        </Text>
+      )}
+      {kualitasUdara && (
+        <Text style={{ fontSize: 11, color: "#888", textAlign: "center" }}>
+          PM2.5: {kualitasUdara.pm25} µg/m³ • PM10: {kualitasUdara.pm10} µg/m³
         </Text>
       )}
       <AtribusiCuaca />
