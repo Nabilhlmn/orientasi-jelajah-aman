@@ -1,4 +1,5 @@
 // src/app/(tabs)/index.tsx
+import { router } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -103,19 +104,36 @@ export default function HalamanUtama() {
         </View>
       )}
       {cuaca && kualitasUdara && kotaTerpilih && !sedangMemuat && (
-        <WeatherCard
-          kota={kotaTerpilih.name}
-          suhu={cuaca.saatIni.suhu}
-          tingkatAQI={konversiTingkatAQI(kualitasUdara.indeksAQI)}
-          indeksAQI={kualitasUdara.indeksAQI}
-        />
+        <>
+          <WeatherCard
+            kota={kotaTerpilih.name}
+            suhu={cuaca.saatIni.suhu}
+            tingkatAQI={konversiTingkatAQI(kualitasUdara.indeksAQI)}
+          />
+          <Button
+            title="Tambahkan ke Favorit"
+            onPress={() =>
+              router.push({
+                pathname: "/tambah-favorit",
+                params: {
+                  id: String(kotaTerpilih.id),
+                  nama: kotaTerpilih.name,
+                  lat: String(kotaTerpilih.latitude),
+                  lon: String(kotaTerpilih.longitude),
+                },
+              })
+            }
+          />
+        </>
       )}
+
       {cuaca && (
         <Text style={{ fontSize: 12, color: "#888" }}>
           Kondisi: {labelKodeCuaca(cuaca.saatIni.kodeCuaca)} • Angin
           {cuaca.saatIni.kecepatanAngin} km/j
         </Text>
       )}
+
       <AtribusiCuaca />
     </SafeAreaView>
   );
