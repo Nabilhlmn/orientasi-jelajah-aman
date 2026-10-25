@@ -1,5 +1,5 @@
 // components/IndikatorAQI.tsx
-import { View, Text } from "react-native";
+import { Text, View } from "react-native";
 import { LaporanUdara } from "../types/cuaca";
 
 export type IndikatorAQIProps =
