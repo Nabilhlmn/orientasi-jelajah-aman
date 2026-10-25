@@ -1,5 +1,5 @@
-// src/app/(tabs)/index.tsx 
-import { useState, useEffect, useRef } from "react";
+// src/app/(tabs)/index.tsx
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,9 +7,10 @@ import {
   ActivityIndicator,
   Button,
   TouchableOpacity,
+  StyleSheet,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 
 import SearchBox from "../../components/SearchBox";
 import WeatherCard from "../../components/WeatherCard";
@@ -19,6 +20,12 @@ import { useDebounce } from "../../hooks/use-debounce";
 import { cariKota } from "../../services/geocodingService";
 import { ambilCuacaOfflineFirst, BATAS_CACHE_MS } from "../../services/cuacaRepository";
 import { bersihkanCacheLama, daftarKotaTersimpan } from "../../services/cacheRepository";
+import { tambahRiwayatPencarian } from "../../services/searchHistoryStorage";
+import {
+  cekApakahFavorit,
+  tambahFavorit,
+  hapusFavorit,
+} from "../../services/favoritStorage";
 import { mintaIzinLokasi, ambilKoordinatSaatIni } from "../../services/locationService";
 import { konversiTingkatAQI } from "../../services/weatherAdapter";
 import { labelKodeCuaca } from "../../constants/weatherCodes";
@@ -26,28 +33,41 @@ import { HasilGeocoding } from "../../types/geocoding";
 import { HasilCuacaOffline, RingkasanKotaTersimpan } from "../../types/cache";
 
 export default function HalamanUtama() {
+  const params = useLocalSearchParams<{
+    cariNama?: string;
+    cariLat?: string;
+    cariLon?: string;
+    cariId?: string;
+    t?: string;
+  }>();
+
   const [teksCari, setTeksCari] = useState("");
   const [hasilPencarian, setHasilPencarian] = useState<HasilGeocoding[]>([]);
   const [kotaTerpilih, setKotaTerpilih] = useState<HasilGeocoding | null>(null);
   const [hasil, setHasil] = useState<HasilCuacaOffline | null>(null);
   const [kotaTersimpan, setKotaTersimpan] = useState<RingkasanKotaTersimpan[]>([]);
+  const [sudahFavorit, setSudahFavorit] = useState(false);
   const [sedangMemuat, setSedangMemuat] = useState(false);
   const [pesanError, setPesanError] = useState<string | null>(null);
   const [pesanLokasi, setPesanLokasi] = useState<string | null>(null);
 
   const teksTertunda = useDebounce(teksCari, 500);
-  const requestIdRef = useRef(0); // pencegah race condition 
+  const requestIdRef = useRef(0);
 
-  async function muatKotaTersimpan() {
-    setKotaTersimpan(await daftarKotaTersimpan());
-  }
+  const muatKotaTersimpan = useCallback(async () => {
+    try {
+      const data = await daftarKotaTersimpan();
+      setKotaTersimpan(data);
+    } catch {
+      setKotaTersimpan([]);
+    }
+  }, []);
 
-  // Saat aplikasi dibuka: buang cache > 7 hari, lalu tampilkan daftar tersimpan 
   useEffect(() => {
     bersihkanCacheLama(BATAS_CACHE_MS)
       .then(muatKotaTersimpan)
-      .catch(() => { });
-  }, []);
+      .catch(() => {});
+  }, [muatKotaTersimpan]);
 
   useEffect(() => {
     if (teksTertunda.trim().length === 0) {
@@ -57,30 +77,76 @@ export default function HalamanUtama() {
     cariKota(teksTertunda).then(setHasilPencarian).catch(() => setHasilPencarian([]));
   }, [teksTertunda]);
 
-  async function pilihKota(kota: HasilGeocoding, paksaPerbarui = false) {
-    setKotaTerpilih(kota);
-    const idSaatIni = ++requestIdRef.current;
-    setSedangMemuat(true);
-    setPesanError(null);
+  const pilihKota = useCallback(
+    async (kota: HasilGeocoding, paksaPerbarui = false) => {
+      setKotaTerpilih(kota);
+      const idSaatIni = ++requestIdRef.current;
+      setSedangMemuat(true);
+      setPesanError(null);
 
-    try {
-      const data = await ambilCuacaOfflineFirst(
-        { id: kota.id, nama: kota.name, latitude: kota.latitude, longitude: kota.longitude },
-        { paksaPerbarui }
-      );
-      if (idSaatIni !== requestIdRef.current) return; // hasil basi, abaikan 
-      setHasil(data);
-      muatKotaTersimpan();
-    } catch (err) {
-      if (idSaatIni !== requestIdRef.current) return;
-      setHasil(null);
-      setPesanError(
-        "Belum ada data tersimpan dan tidak ada koneksi internet. Sambungkan internet lalu coba lagi."
-      );
-    } finally {
-      if (idSaatIni === requestIdRef.current) setSedangMemuat(false);
+      // Cek apakah kota sudah masuk daftar favorit
+      if (kota.name && kota.name !== "Lokasi Saat Ini") {
+        cekApakahFavorit({ id: kota.id, nama: kota.name }).then(setSudahFavorit);
+      } else {
+        setSudahFavorit(false);
+      }
+
+      // Simpan ke riwayat pencarian terakhir (maks 10, deduplikasi)
+      if (kota.name && kota.name !== "Lokasi Saat Ini") {
+        tambahRiwayatPencarian({
+          id: kota.id,
+          nama: kota.name,
+          latitude: kota.latitude,
+          longitude: kota.longitude,
+          country: kota.country,
+          admin1: kota.admin1,
+        }).catch(() => {});
+      }
+
+      try {
+        const data = await ambilCuacaOfflineFirst(
+          {
+            id: kota.id,
+            nama: kota.name,
+            latitude: kota.latitude,
+            longitude: kota.longitude,
+          },
+          { paksaPerbarui }
+        );
+        if (idSaatIni !== requestIdRef.current) return;
+        setHasil(data);
+        muatKotaTersimpan();
+      } catch {
+        if (idSaatIni !== requestIdRef.current) return;
+        setHasil(null);
+        setPesanError(
+          "Belum ada data tersimpan dan tidak ada koneksi internet. Sambungkan internet lalu coba lagi."
+        );
+      } finally {
+        if (idSaatIni === requestIdRef.current) setSedangMemuat(false);
+      }
+    },
+    [muatKotaTersimpan]
+  );
+
+  // Otomatisasi: buka kota yang diklik dari riwayat pencarian
+  useEffect(() => {
+    if (params.cariNama && params.cariLat && params.cariLon) {
+      const lat = parseFloat(params.cariLat);
+      const lon = parseFloat(params.cariLon);
+      const id = params.cariId ? parseInt(params.cariId, 10) : 0;
+
+      if (!isNaN(lat) && !isNaN(lon)) {
+        pilihKota({
+          id: isNaN(id) ? 0 : id,
+          name: params.cariNama,
+          latitude: lat,
+          longitude: lon,
+          country: "",
+        });
+      }
     }
-  }
+  }, [params.cariNama, params.cariLat, params.cariLon, params.cariId, params.t, pilihKota]);
 
   async function gunakanLokasiSaatIni() {
     const status = await mintaIzinLokasi();
@@ -105,10 +171,26 @@ export default function HalamanUtama() {
     });
   }
 
+  async function toggleFavorit() {
+    if (!kotaTerpilih) return;
+    if (sudahFavorit) {
+      await hapusFavorit(kotaTerpilih.id, kotaTerpilih.name);
+      setSudahFavorit(false);
+    } else {
+      await tambahFavorit({
+        id: kotaTerpilih.id,
+        nama: kotaTerpilih.name,
+        latitude: kotaTerpilih.latitude,
+        longitude: kotaTerpilih.longitude,
+      });
+      setSudahFavorit(true);
+    }
+  }
+
   return (
-    <SafeAreaView style={{ flex: 1 }}>
+    <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 16 }}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
         <SearchBox onCari={setTeksCari} />
@@ -117,15 +199,25 @@ export default function HalamanUtama() {
         {pesanLokasi && <Text accessibilityLabel={pesanLokasi}>{pesanLokasi}</Text>}
 
         {hasilPencarian.map((kota) => (
-          <TouchableOpacity key={kota.id} onPress={() => pilihKota(kota)}>
-            <Text>{kota.name}</Text>
+          <TouchableOpacity
+            key={kota.id}
+            onPress={() => pilihKota(kota)}
+            style={styles.itemPencarian}
+          >
+            <Text style={styles.namaPencarian}>{kota.name}</Text>
+            {kota.country ? (
+              <Text style={styles.negaraPencarian}>
+                {[kota.admin1, kota.country].filter(Boolean).join(", ")}
+              </Text>
+            ) : null}
           </TouchableOpacity>
         ))}
 
         {kotaTersimpan.length > 0 && (
           <View style={{ gap: 6 }}>
-            <Text style={{ fontWeight: "bold" }}>Tersimpan di perangkat (bisa dibuka
-              offline)</Text>
+            <Text style={{ fontWeight: "bold" }}>
+              Tersimpan di perangkat (bisa dibuka offline)
+            </Text>
             {kotaTersimpan.map((k) => (
               <TouchableOpacity
                 key={k.kunci}
@@ -138,6 +230,7 @@ export default function HalamanUtama() {
                     country: "",
                   })
                 }
+                style={styles.itemTersimpan}
               >
                 <Text>{k.nama}</Text>
               </TouchableOpacity>
@@ -145,11 +238,13 @@ export default function HalamanUtama() {
           </View>
         )}
 
-        {sedangMemuat && <ActivityIndicator />}
+        {sedangMemuat && <ActivityIndicator size="large" />}
 
         {pesanError && (
-          <View>
-            <Text accessibilityLabel={pesanError}>{pesanError}</Text>
+          <View style={styles.errorBox}>
+            <Text accessibilityLabel={pesanError} style={styles.errorTeks}>
+              {pesanError}
+            </Text>
             <Button
               title="Coba Lagi"
               onPress={() => kotaTerpilih && pilihKota(kotaTerpilih, true)}
@@ -174,18 +269,8 @@ export default function HalamanUtama() {
               onPress={() => pilihKota(kotaTerpilih, true)}
             />
             <Button
-              title="Tambahkan ke Favorit"
-              onPress={() =>
-                router.push({
-                  pathname: "/tambah-favorit",
-                  params: {
-                    id: String(kotaTerpilih.id),
-                    nama: kotaTerpilih.name,
-                    lat: String(kotaTerpilih.latitude),
-                    lon: String(kotaTerpilih.longitude),
-                  },
-                })
-              }
+              title={sudahFavorit ? "Hapus dari Favorit" : "Tambahkan ke Favorit"}
+              onPress={toggleFavorit}
             />
           </>
         )}
@@ -194,4 +279,41 @@ export default function HalamanUtama() {
       </ScrollView>
     </SafeAreaView>
   );
-} 
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+    gap: 16,
+  },
+  itemPencarian: {
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+  },
+  namaPencarian: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  negaraPencarian: {
+    fontSize: 12,
+    color: "#64748B",
+  },
+  itemTersimpan: {
+    padding: 10,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 8,
+  },
+  errorBox: {
+    padding: 12,
+    backgroundColor: "#FEE2E2",
+    borderRadius: 8,
+    gap: 8,
+  },
+  errorTeks: {
+    color: "#DC2626",
+  },
+});
