@@ -1,6 +1,7 @@
 // src/components/StatusData.tsx 
 import { Text, View } from "react-native";
 import { SumberData } from "../types/cache";
+import { useThemeContext } from "../context/ThemeContext";
 
 interface StatusDataProps {
   sumber: SumberData;
@@ -23,13 +24,26 @@ function labelSumber(sumber: SumberData): string {
 }
 
 export default function StatusData({ sumber, disimpanPada }: StatusDataProps) {
+  const { isDark } = useThemeContext();
   const basi = sumber === "cache-basi";
   const label = labelSumber(sumber);
   const umur = formatUmur(disimpanPada);
 
-  const bgWarna = basi ? "#FEF3C7" : "#D1FAE5";
-  const teksWarna = basi ? "#B45309" : "#065F46";
-  const borderWarna = basi ? "#FDE68A" : "#A7F3D0";
+  const bgWarna = basi
+    ? isDark
+      ? "#451A03"
+      : "#FEF3C7"
+    : isDark
+    ? "#064E3B"
+    : "#D1FAE5";
+
+  const teksWarna = basi
+    ? isDark
+      ? "#FCD34D"
+      : "#B45309"
+    : isDark
+    ? "#6EE7B7"
+    : "#065F46";
 
   return (
     <View
@@ -40,11 +54,11 @@ export default function StatusData({ sumber, disimpanPada }: StatusDataProps) {
         borderRadius: 10,
         backgroundColor: bgWarna,
         borderWidth: 1,
-        borderColor: borderWarna,
+        borderColor: basi ? (isDark ? "#78350F" : "#FDE68A") : isDark ? "#047857" : "#A7F3D0",
       }}
     >
       <Text style={{ fontSize: 13, fontWeight: "600", color: teksWarna }}>{label}</Text>
-      <Text style={{ fontSize: 11, color: "#4B5563", marginTop: 2 }}>
+      <Text style={{ fontSize: 11, color: isDark ? "#94A3B8" : "#4B5563", marginTop: 2 }}>
         Diperbarui {umur}
       </Text>
     </View>
