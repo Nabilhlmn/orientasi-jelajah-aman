@@ -19,7 +19,11 @@ import StatusData from "../../components/StatusData";
 import { useDebounce } from "../../hooks/use-debounce";
 import { cariKota } from "../../services/geocodingService";
 import { ambilCuacaOfflineFirst, BATAS_CACHE_MS } from "../../services/cuacaRepository";
-import { bersihkanCacheLama, daftarKotaTersimpan } from "../../services/cacheRepository";
+import {
+  bersihkanCacheLama,
+  daftarKotaTersimpan,
+  hapusCacheKota,
+} from "../../services/cacheRepository";
 import { tambahRiwayatPencarian } from "../../services/searchHistoryStorage";
 import {
   cekApakahFavorit,
@@ -31,6 +35,7 @@ import { konversiTingkatAQI } from "../../services/weatherAdapter";
 import { labelKodeCuaca } from "../../constants/weatherCodes";
 import { HasilGeocoding } from "../../types/geocoding";
 import { HasilCuacaOffline, RingkasanKotaTersimpan } from "../../types/cache";
+import { konfirmasiHapus } from "../../utils/dialog";
 
 export default function HalamanUtama() {
   const params = useLocalSearchParams<{
@@ -84,14 +89,12 @@ export default function HalamanUtama() {
       setSedangMemuat(true);
       setPesanError(null);
 
-      // Cek apakah kota sudah masuk daftar favorit
       if (kota.name && kota.name !== "Lokasi Saat Ini") {
         cekApakahFavorit({ id: kota.id, nama: kota.name }).then(setSudahFavorit);
       } else {
         setSudahFavorit(false);
       }
 
-      // Simpan ke riwayat pencarian terakhir (maks 10, deduplikasi)
       if (kota.name && kota.name !== "Lokasi Saat Ini") {
         tambahRiwayatPencarian({
           id: kota.id,
@@ -129,7 +132,6 @@ export default function HalamanUtama() {
     [muatKotaTersimpan]
   );
 
-  // Otomatisasi: buka kota yang diklik dari riwayat pencarian
   useEffect(() => {
     if (params.cariNama && params.cariLat && params.cariLon) {
       const lat = parseFloat(params.cariLat);
@@ -147,6 +149,17 @@ export default function HalamanUtama() {
       }
     }
   }, [params.cariNama, params.cariLat, params.cariLon, params.cariId, params.t, pilihKota]);
+
+  function handleHapusCache(kota: RingkasanKotaTersimpan) {
+    konfirmasiHapus(
+      "Hapus Cache Kota",
+      `Apakah Anda yakin ingin menghapus data cuaca tersimpan untuk kota ${kota.nama}?`,
+      async () => {
+        await hapusCacheKota(kota.kunci);
+        await muatKotaTersimpan();
+      }
+    );
+  }
 
   async function gunakanLokasiSaatIni() {
     const status = await mintaIzinLokasi();
@@ -174,8 +187,14 @@ export default function HalamanUtama() {
   async function toggleFavorit() {
     if (!kotaTerpilih) return;
     if (sudahFavorit) {
-      await hapusFavorit(kotaTerpilih.id, kotaTerpilih.name);
-      setSudahFavorit(false);
+      konfirmasiHapus(
+        "Hapus Favorit",
+        `Yakin ingin menghapus ${kotaTerpilih.name} dari favorit?`,
+        async () => {
+          await hapusFavorit(kotaTerpilih.id, kotaTerpilih.name);
+          setSudahFavorit(false);
+        }
+      );
     } else {
       await tambahFavorit({
         id: kotaTerpilih.id,
@@ -219,21 +238,28 @@ export default function HalamanUtama() {
               Tersimpan di perangkat (bisa dibuka offline)
             </Text>
             {kotaTersimpan.map((k) => (
-              <TouchableOpacity
-                key={k.kunci}
-                onPress={() =>
-                  pilihKota({
-                    id: k.id,
-                    name: k.nama,
-                    latitude: k.latitude,
-                    longitude: k.longitude,
-                    country: "",
-                  })
-                }
-                style={styles.itemTersimpan}
-              >
-                <Text>{k.nama}</Text>
-              </TouchableOpacity>
+              <View key={k.kunci} style={styles.itemTersimpanRow}>
+                <TouchableOpacity
+                  onPress={() =>
+                    pilihKota({
+                      id: k.id,
+                      name: k.nama,
+                      latitude: k.latitude,
+                      longitude: k.longitude,
+                      country: "",
+                    })
+                  }
+                  style={{ flex: 1 }}
+                >
+                  <Text style={{ fontWeight: "600" }}>{k.nama}</Text>
+                  {k.suhu !== undefined && (
+                    <Text style={{ fontSize: 12, color: "#64748B" }}>
+                      Suhu tersimpan: {Math.round(k.suhu)}°C
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <Button title="Hapus" onPress={() => handleHapusCache(k)} color="#EF4444" />
+              </View>
             ))}
           </View>
         )}
@@ -302,7 +328,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#64748B",
   },
-  itemTersimpan: {
+  itemTersimpanRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 10,
     backgroundColor: "#F1F5F9",
     borderRadius: 8,

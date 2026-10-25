@@ -1,7 +1,7 @@
 // src/app/(tabs)/riwayat.tsx
 import { useFocusEffect, router } from "expo-router";
 import { useCallback, useState } from "react";
-import { Alert, Button, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Button, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ambilSemuaFavorit, hapusFavorit } from "../../services/favoritStorage";
 import {
@@ -10,7 +10,14 @@ import {
   hapusSemuaRiwayatPencarian,
   RiwayatPencarianKota,
 } from "../../services/searchHistoryStorage";
+import {
+  daftarKotaTersimpan,
+  hapusCacheKota,
+  hapusSemuaCache,
+} from "../../services/cacheRepository";
 import { KotaFavorit } from "../../types/favorit";
+import { RingkasanKotaTersimpan } from "../../types/cache";
+import { konfirmasiHapus } from "../../utils/dialog";
 
 function formatWaktu(ms: number): string {
   const selisihDetik = Math.floor((Date.now() - ms) / 1000);
@@ -24,18 +31,21 @@ function formatWaktu(ms: number): string {
 }
 
 export default function TabRiwayat() {
-  const [tabAktif, setTabAktif] = useState<"favorit" | "riwayat">("favorit");
+  const [tabAktif, setTabAktif] = useState<"favorit" | "riwayat" | "cache">("favorit");
   const [daftarFavorit, setDaftarFavorit] = useState<KotaFavorit[]>([]);
   const [daftarRiwayat, setDaftarRiwayat] = useState<RiwayatPencarianKota[]>([]);
+  const [daftarCache, setDaftarCache] = useState<RingkasanKotaTersimpan[]>([]);
 
   const muatData = useCallback(async () => {
     try {
-      const [fav, riw] = await Promise.all([
+      const [fav, riw, cch] = await Promise.all([
         ambilSemuaFavorit(),
         ambilRiwayatPencarian(),
+        daftarKotaTersimpan(),
       ]);
       setDaftarFavorit(fav);
       setDaftarRiwayat(riw);
+      setDaftarCache(cch);
     } catch {}
   }, []);
 
@@ -45,29 +55,15 @@ export default function TabRiwayat() {
     }, [muatData])
   );
 
-  async function handleHapusFavorit(kota: KotaFavorit) {
-    Alert.alert(
-      "Konfirmasi",
-      `Yakin hapus ${kota.nama} dari favorit?`,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Hapus",
-          style: "destructive",
-          onPress: async () => {
-            await hapusFavorit(kota.id, kota.nama);
-            muatData();
-          },
-        },
-      ]
-    );
-
-    if (Platform.OS === "web") {
-      if (window.confirm(`Yakin hapus ${kota.nama} dari favorit?`)) {
+  function handleHapusFavorit(kota: KotaFavorit) {
+    konfirmasiHapus(
+      "Hapus Favorit",
+      `Apakah Anda yakin ingin menghapus kota "${kota.nama}" dari daftar favorit?`,
+      async () => {
         await hapusFavorit(kota.id, kota.nama);
         muatData();
       }
-    }
+    );
   }
 
   function bukaKotaDiBeranda(item: {
@@ -88,14 +84,48 @@ export default function TabRiwayat() {
     });
   }
 
-  async function handleHapusSatuRiwayat(item: RiwayatPencarianKota) {
-    const sisa = await hapusSatuRiwayatPencarian(item.id, item.nama);
-    setDaftarRiwayat(sisa);
+  function handleHapusSatuRiwayat(item: RiwayatPencarianKota) {
+    konfirmasiHapus(
+      "Hapus Riwayat",
+      `Hapus riwayat pencarian untuk kota "${item.nama}"?`,
+      async () => {
+        const sisa = await hapusSatuRiwayatPencarian(item.id, item.nama);
+        setDaftarRiwayat(sisa);
+      }
+    );
   }
 
-  async function handleHapusSemuaRiwayat() {
-    await hapusSemuaRiwayatPencarian();
-    setDaftarRiwayat([]);
+  function handleHapusSemuaRiwayat() {
+    konfirmasiHapus(
+      "Hapus Semua Riwayat",
+      "Apakah Anda yakin ingin menghapus seluruh riwayat pencarian?",
+      async () => {
+        await hapusSemuaRiwayatPencarian();
+        setDaftarRiwayat([]);
+      }
+    );
+  }
+
+  function handleHapusCacheKota(k: RingkasanKotaTersimpan) {
+    konfirmasiHapus(
+      "Hapus Cache Kota",
+      `Apakah Anda yakin ingin menghapus cache data cuaca kota "${k.nama}" dari perangkat?`,
+      async () => {
+        await hapusCacheKota(k.kunci);
+        muatData();
+      }
+    );
+  }
+
+  function handleHapusSemuaCache() {
+    konfirmasiHapus(
+      "Kosongkan Cache",
+      "Apakah Anda yakin ingin menghapus seluruh data cache cuaca tersimpan?",
+      async () => {
+        await hapusSemuaCache();
+        muatData();
+      }
+    );
   }
 
   return (
@@ -106,7 +136,7 @@ export default function TabRiwayat() {
           onPress={() => setTabAktif("favorit")}
         >
           <Text style={[styles.tabText, tabAktif === "favorit" && styles.tabTextActive]}>
-            Kota Favorit ({daftarFavorit.length})
+            Favorit ({daftarFavorit.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -114,7 +144,15 @@ export default function TabRiwayat() {
           onPress={() => setTabAktif("riwayat")}
         >
           <Text style={[styles.tabText, tabAktif === "riwayat" && styles.tabTextActive]}>
-            Riwayat Pencarian ({daftarRiwayat.length})
+            Riwayat ({daftarRiwayat.length})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tabButton, tabAktif === "cache" && styles.tabButtonActive]}
+          onPress={() => setTabAktif("cache")}
+        >
+          <Text style={[styles.tabText, tabAktif === "cache" && styles.tabTextActive]}>
+            Cache ({daftarCache.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -141,7 +179,7 @@ export default function TabRiwayat() {
                   >
                     <Text style={styles.itemTitle}>{kota.nama}</Text>
                   </TouchableOpacity>
-                  <Button title="Hapus" onPress={() => handleHapusFavorit(kota)} />
+                  <Button title="Hapus" onPress={() => handleHapusFavorit(kota)} color="#EF4444" />
                 </View>
               ))
             )}
@@ -153,7 +191,7 @@ export default function TabRiwayat() {
             <View style={styles.rowBetween}>
               <Text style={styles.heading}>10 Pencarian Terakhir</Text>
               {daftarRiwayat.length > 0 && (
-                <Button title="Hapus Semua" onPress={handleHapusSemuaRiwayat} />
+                <Button title="Hapus Semua" onPress={handleHapusSemuaRiwayat} color="#EF4444" />
               )}
             </View>
 
@@ -171,7 +209,45 @@ export default function TabRiwayat() {
                       {[item.country, formatWaktu(item.waktu)].filter(Boolean).join(" • ")}
                     </Text>
                   </TouchableOpacity>
-                  <Button title="Hapus" onPress={() => handleHapusSatuRiwayat(item)} />
+                  <Button title="Hapus" onPress={() => handleHapusSatuRiwayat(item)} color="#EF4444" />
+                </View>
+              ))
+            )}
+          </View>
+        )}
+
+        {tabAktif === "cache" && (
+          <View style={styles.sectionWrap}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.heading}>Cache Cuaca Offline</Text>
+              {daftarCache.length > 0 && (
+                <Button title="Kosongkan" onPress={handleHapusSemuaCache} color="#EF4444" />
+              )}
+            </View>
+
+            {daftarCache.length === 0 ? (
+              <Text style={styles.teksKosong}>Belum ada data cache cuaca tersimpan.</Text>
+            ) : (
+              daftarCache.map((k) => (
+                <View key={k.kunci} style={styles.itemCard}>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    onPress={() =>
+                      bukaKotaDiBeranda({
+                        id: k.id,
+                        nama: k.nama,
+                        latitude: k.latitude,
+                        longitude: k.longitude,
+                      })
+                    }
+                  >
+                    <Text style={styles.itemTitle}>{k.nama}</Text>
+                    <Text style={styles.itemSub}>
+                      Disimpan {formatWaktu(k.disimpanPada)}
+                      {k.suhu !== undefined ? ` • Suhu: ${Math.round(k.suhu)}°C` : ""}
+                    </Text>
+                  </TouchableOpacity>
+                  <Button title="Hapus" onPress={() => handleHapusCacheKota(k)} color="#EF4444" />
                 </View>
               ))
             )}
@@ -204,7 +280,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0284C7",
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
     color: "#64748B",
   },

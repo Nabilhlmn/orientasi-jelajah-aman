@@ -1,0 +1,52 @@
+// src/components/StatusData.tsx 
+import { Text, View } from "react-native";
+import { SumberData } from "../types/cache";
+
+interface StatusDataProps {
+  sumber: SumberData;
+  disimpanPada: number;
+}
+
+function formatUmur(disimpanPada: number): string {
+  const menit = Math.floor((Date.now() - disimpanPada) / 60000);
+  if (menit < 1) return "baru saja";
+  if (menit < 60) return menit + " menit lalu";
+  const jam = Math.floor(menit / 60);
+  if (jam < 24) return jam + " jam lalu";
+  return Math.floor(jam / 24) + " hari lalu";
+}
+
+function labelSumber(sumber: SumberData): string {
+  if (sumber === "jaringan") return "Data terbaru dari internet";
+  if (sumber === "cache-segar") return "Data tersimpan di cache (masih segar)";
+  return "Mode offline - data tersimpan mungkin sudah usang";
+}
+
+export default function StatusData({ sumber, disimpanPada }: StatusDataProps) {
+  const basi = sumber === "cache-basi";
+  const label = labelSumber(sumber);
+  const umur = formatUmur(disimpanPada);
+
+  const bgWarna = basi ? "#FEF3C7" : "#D1FAE5";
+  const teksWarna = basi ? "#B45309" : "#065F46";
+  const borderWarna = basi ? "#FDE68A" : "#A7F3D0";
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={label + ", diperbarui " + umur}
+      style={{
+        padding: 10,
+        borderRadius: 10,
+        backgroundColor: bgWarna,
+        borderWidth: 1,
+        borderColor: borderWarna,
+      }}
+    >
+      <Text style={{ fontSize: 13, fontWeight: "600", color: teksWarna }}>{label}</Text>
+      <Text style={{ fontSize: 11, color: "#4B5563", marginTop: 2 }}>
+        Diperbarui {umur}
+      </Text>
+    </View>
+  );
+}
